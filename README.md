@@ -29,7 +29,6 @@ FFT → 1×1 합성곱 → 역FFT(전역 갈래)로 처리하는 블록이다. �
 |---|---|
 | `train_denoise_ffc.ipynb` | **1단계.** 번짐+잡음 영상에서 잡음만 지워 번진 영상을 만든다 |
 | `train_deconv_ffc.ipynb` | **2단계.** 번진 영상에서 번짐을 되돌려 원본 영상을 만든다. 1단계 체크포인트를 불러 쓴다 |
-| `train_restormer.ipynb` | 1일차(번짐 없음) 조건의 Restormer 잡음 제거. test 35.677 dB |
 | `a100_denoising.py`, `train_denoising_a100.ipynb` | junsung 님 DnCNN 미세조정 코드 (main 에서 병합됨) |
 | `checkpoint_best_a100*.ckpt` | DnCNN 체크포인트 |
 
