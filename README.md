@@ -5,7 +5,7 @@
 
 ```
 번짐+잡음 영상 ──▶ [1단계: 잡음 제거] ──▶ 번진 영상 ──▶ [2단계: 역합성곱] ──▶ 원본 영상
-   18.51 dB          train_denoise_ffc        30.27 dB       train_deconv_ffc        최종 점수
+   18.51 dB          train_denoise_ffc        30.27 dB       train_deconv_ffc        28.42 dB
 ```
 
 FFC 는 채널을 둘로 나눠 절반은 보통의 3×3 합성곱(국소 갈래)으로, 절반은
@@ -13,15 +13,44 @@ FFT → 1×1 합성곱 → 역FFT(전역 갈래)로 처리하는 블록이다. �
 한 층이 영상 전체를 보므로, 번짐(다이폴 커널과의 합성곱)처럼 멀리 퍼지는
 현상을 다루기에 알맞다.
 
-## 현재 성적
+## 최종 결과
 
-| 무엇 | 점수 | 비고 |
+**과제 전체 점수 (번짐+잡음 → 원본, 두 단계 통과):**
+
+| 무엇 | PSNR | SSIM |
 |---|---|---|
-| 1단계 (번짐+잡음 → 번진 영상, test 100장) | **30.266 dB / SSIM 0.9376** | 학습 완료 (200 epoch) |
-| 2단계 포함 전체 (번짐+잡음 → 원본, val) | **25.874 dB @ ep 45** | 학습 진행 중 (960 epoch 예정) |
-| 조교 end-to-end U-Net (비교 대상) | 25.02 dB | **ep 24 에 추월** |
+| **우리 파이프라인 (test 100장)** | **28.416 dB** | **0.8835** |
+| 우리 파이프라인 (val, best ep931) | 28.833 dB | 0.8231 |
+| 조교 end-to-end U-Net (비교 대상) | 25.02 dB | — |
 
-2단계 학습 로그는 이 문서 맨 아래에 있다.
+**test 100장에서 같은 조건끼리 비교 (모두 같은 1단계 출력을 입력으로 받음):**
+
+| 2단계 방법 | PSNR | SSIM |
+|---|---|---|
+| 아무것도 안 함 (1단계 출력 그대로) | 7.954 | 0.0524 |
+| TKD (고전, 참고용) | 24.332 | 0.7586 |
+| Wiener (금지 — 참고용) | 23.913 | 0.7403 |
+| **FFC U-Net (우리 2단계)** | **28.416** | **0.8835** |
+| TKD, 잡음 없는 번진 영상 입력 (상한 참고) | 34.689 | 0.9605 |
+
+![2단계 학습 곡선](history_deconv.png)
+
+![정성 결과](ffc_grid.png)
+
+## 결과 해석
+
+1. **조교 end-to-end U-Net 을 +3.4 dB 이겼다** (오차 기준 약 −32%). 학습 시작
+   22분 만인 epoch 24 에 25.02 를 추월했다.
+2. **학습형 2단계가 고전 방법을 크게 이긴다.** 같은 입력을 받은 TKD 보다
+   +4.08 dB. "두 단계로 나누고 뒷단도 신경망으로" 라는 설계가 맞았는지는
+   논쟁이 있었는데, 이 수치가 측정으로 답했다.
+3. **남은 병목은 1단계 잔차다.** 잡음이 전혀 없는 번진 영상을 주면 고전
+   TKD 조차 34.7 dB 가 나온다. 즉 2단계 위로 6 dB 이상의 여유가 있고, 그
+   차이는 1단계가 못 지운 잡음(특히 rician)이 역합성곱에서 증폭된 대가다.
+   다음에 손댈 곳은 2단계가 아니라 1단계 rician 이다.
+4. **물리 정보 주입이 결정적이었다.** 방향 고정 + 다이폴 지도 주입 전(v1)에는
+   epoch 20 에 17.68 dB 였고, 주입 후(v2) 같은 지점에서 24.48 dB 다 (+6.8 dB).
+   구조 반복 학습이 아니라 문제의 물리를 신경망에 알려준 효과다.
 
 ## 파일
 
@@ -29,6 +58,8 @@ FFT → 1×1 합성곱 → 역FFT(전역 갈래)로 처리하는 블록이다. �
 |---|---|
 | `train_denoise_ffc.ipynb` | **1단계.** 번짐+잡음 영상에서 잡음만 지워 번진 영상을 만든다 |
 | `train_deconv_ffc.ipynb` | **2단계.** 번진 영상에서 번짐을 되돌려 원본 영상을 만든다. 1단계 체크포인트를 불러 쓴다 |
+| `history_deconv.png` | 2단계 960 epoch 학습 곡선 |
+| `ffc_grid.png` | test 표본의 정성 비교 (원본 / 입력 / 1단계 출력 / TKD / 우리 결과) |
 | `a100_denoising.py`, `train_denoising_a100.ipynb` | junsung 님 DnCNN 미세조정 코드 (main 에서 병합됨) |
 | `checkpoint_best_a100*.ckpt` | DnCNN 체크포인트 |
 
@@ -42,7 +73,7 @@ FFT → 1×1 합성곱 → 역FFT(전역 갈래)로 처리하는 블록이다. �
   위로 미는 편향(+0.029)이 있는데 L1 만으로는 이 편향을 못 잡아서 넣었다.
 - **전역 skip**: 입력과 출력이 거의 같은 문제라 `출력 = 신경망(입력) + 입력` 꼴을 쓴다.
 
-test 100장 종류별 성적:
+test 100장 종류별 성적 (200 epoch 학습 완료):
 
 | 잡음 | 입력 | FFC U-Net | Mean 3×3 | Median 3×3 |
 |---|---|---|---|---|
@@ -53,7 +84,7 @@ test 100장 종류별 성적:
 | 전체 | 18.507 | **30.266** | 21.421 | 22.167 |
 
 남은 약점: rician (전체 제곱오차의 72.7%를 혼자 차지). rician 을 나머지 수준까지
-올리면 전체가 +2.3 dB 오른다.
+올리면 1단계가 +2.3 dB, 최종 점수도 그 절반쯤 따라 오른다.
 
 ## 2단계 — train_deconv_ffc.ipynb
 
@@ -75,9 +106,11 @@ test 100장 종류별 성적:
 
 - **물리 항**: 손실에 `0.1 × |dipole(복원 결과) − 깨끗한 번진 영상|` 추가.
 - **발산 감지기**: loss 가 직전의 5배를 넘으면 best 체크포인트로 되돌리고
-  학습률을 절반으로 줄여 계속 간다.
+  학습률을 절반으로 줄여 계속 간다. (960 epoch 동안 한 번도 발동 안 함.)
 - **EPOCH_FRACTION = 4**: 한 epoch 에 학습 영상의 1/4만 무작위로 쓴다. 총
   계산량은 같지만 epoch 수가 늘어 코사인 학습률 곡선이 끝까지 내려간다.
+- **이어받기**: 로컬과 Drive 체크포인트 중 저장된 epoch 이 큰 쪽을 자동 선택.
+  실제로 학습 중 연결이 두 번 끊겼지만 기록 손실 없이 이어서 완주했다.
 - `STAGE1_MODE = "e2e"` 로 바꾸면 1단계 없이 한 모델이 번짐+잡음 → 원본을
   통째로 배우는 대조 실험이 된다 (조교 U-Net 과 같은 구도).
 
@@ -98,64 +131,6 @@ test 100장 종류별 성적:
   고전 방법 대비 위치를 보는 용도).
 - **test set 은 점수 확인 외 사용 금지.** 모든 관찰·튜닝은 val 에서 한다.
 - 지도학습(제공된 깨끗한 영상 사용)은 명시적으로 허용됨.
-
-## 2단계 학습 로그 (v2, epoch 1–49)
-
-방향 고정 + 다이폴 지도를 넣기 전(v1)에는 ep20 에 17.681 이었다. 두 수정 뒤
-같은 지점에서 +6.8 dB:
-
-```
-ep   1/960  loss 0.13469  val PSNR  18.939  SSIM 0.5674  [0.7 min]  <- best
-ep   2/960  loss 0.09045  val PSNR  18.912  SSIM 0.6172  [1.1 min]
-ep   3/960  loss 0.09139  val PSNR  20.395  SSIM 0.6506  [1.6 min]  <- best
-ep   4/960  loss 0.08162  val PSNR  20.441  SSIM 0.6640  [2.1 min]  <- best
-ep   5/960  loss 0.07897  val PSNR  19.522  SSIM 0.6716  [2.6 min]
-ep   6/960  loss 0.07771  val PSNR  21.348  SSIM 0.6880  [3.1 min]  <- best
-ep   7/960  loss 0.07011  val PSNR  18.564  SSIM 0.6844  [3.5 min]
-ep   8/960  loss 0.06412  val PSNR  22.002  SSIM 0.7017  [4.0 min]  <- best
-ep   9/960  loss 0.06571  val PSNR  22.853  SSIM 0.7203  [4.5 min]  <- best
-ep  10/960  loss 0.05807  val PSNR  22.065  SSIM 0.7211  [5.0 min]
-ep  11/960  loss 0.05880  val PSNR  21.796  SSIM 0.7148  [5.5 min]
-ep  12/960  loss 0.05690  val PSNR  23.155  SSIM 0.7264  [6.0 min]  <- best
-ep  13/960  loss 0.05437  val PSNR  23.912  SSIM 0.7372  [6.4 min]  <- best
-ep  14/960  loss 0.05682  val PSNR  22.544  SSIM 0.7261  [6.9 min]
-ep  15/960  loss 0.05345  val PSNR  23.779  SSIM 0.7391  [7.4 min]
-ep  16/960  loss 0.04857  val PSNR  23.196  SSIM 0.7309  [7.9 min]
-ep  17/960  loss 0.04815  val PSNR  24.437  SSIM 0.7507  [8.4 min]  <- best
-ep  18/960  loss 0.05037  val PSNR  23.136  SSIM 0.7409  [8.8 min]
-ep  19/960  loss 0.04672  val PSNR  21.652  SSIM 0.7371  [9.3 min]
-ep  20/960  loss 0.04570  val PSNR  24.476  SSIM 0.7576  [9.8 min]  <- best
-ep  21/960  loss 0.04581  val PSNR  24.709  SSIM 0.7546  [10.3 min]  <- best
-ep  22/960  loss 0.04317  val PSNR  24.727  SSIM 0.7567  [10.8 min]  <- best
-ep  23/960  loss 0.04518  val PSNR  24.754  SSIM 0.7621  [11.3 min]  <- best
-ep  24/960  loss 0.04341  val PSNR  25.300  SSIM 0.7641  [11.7 min]  <- best
-ep  25/960  loss 0.04231  val PSNR  24.709  SSIM 0.7604  [12.2 min]
-ep  26/960  loss 0.04216  val PSNR  23.895  SSIM 0.7544  [12.7 min]
-ep  27/960  loss 0.04164  val PSNR  25.316  SSIM 0.7691  [13.2 min]  <- best
-ep  28/960  loss 0.04173  val PSNR  25.033  SSIM 0.7563  [13.7 min]
-ep  29/960  loss 0.03932  val PSNR  24.762  SSIM 0.7610  [14.1 min]
-ep  30/960  loss 0.04122  val PSNR  25.013  SSIM 0.7696  [14.6 min]
-ep  31/960  loss 0.03944  val PSNR  24.726  SSIM 0.7717  [15.1 min]
-ep  32/960  loss 0.03959  val PSNR  25.225  SSIM 0.7731  [15.6 min]
-ep  33/960  loss 0.03831  val PSNR  23.239  SSIM 0.7712  [16.1 min]
-ep  34/960  loss 0.04042  val PSNR  24.759  SSIM 0.7569  [16.6 min]
-ep  35/960  loss 0.03864  val PSNR  25.681  SSIM 0.7741  [17.0 min]  <- best
-ep  36/960  loss 0.03861  val PSNR  25.742  SSIM 0.7761  [17.5 min]  <- best
-ep  37/960  loss 0.03817  val PSNR  25.237  SSIM 0.7726  [18.0 min]
-ep  38/960  loss 0.03907  val PSNR  25.374  SSIM 0.7768  [18.5 min]
-ep  39/960  loss 0.03880  val PSNR  25.823  SSIM 0.7771  [19.0 min]  <- best
-ep  40/960  loss 0.03845  val PSNR  24.316  SSIM 0.7694  [19.4 min]
-ep  41/960  loss 0.03855  val PSNR  24.901  SSIM 0.7746  [19.9 min]
-ep  42/960  loss 0.03863  val PSNR  23.553  SSIM 0.7727  [20.4 min]
-ep  43/960  loss 0.03816  val PSNR  24.624  SSIM 0.7780  [20.9 min]
-ep  44/960  loss 0.03799  val PSNR  25.578  SSIM 0.7748  [21.4 min]
-ep  45/960  loss 0.03820  val PSNR  25.874  SSIM 0.7807  [21.8 min]  <- best
-ep  46/960  loss 0.03719  val PSNR  25.183  SSIM 0.7750  [22.3 min]
-ep  47/960  loss 0.03635  val PSNR  25.222  SSIM 0.7751  [22.8 min]
-ep  48/960  loss 0.03893  val PSNR  24.886  SSIM 0.7775  [23.3 min]
-ep  49/960  loss 0.03915  val PSNR  25.690  SSIM 0.7787  [23.8 min]
-```
-
-이 val PSNR 은 원본 영상과 비교한 값, 즉 **과제 전체의 점수**다 (번짐+잡음
-영상이 들어가 1단계와 2단계를 모두 통과한 결과를 원본과 비교). 조교
-end-to-end U-Net 의 25.02 와 같은 기준이다.
+- 위 test 표의 손상은 노트북이 test_label 에서 재합성한 것이다. 주최측이
+  직접 만들어 제공한 쌍(`test_deconv_noise` → `test_label`)으로 재는 셀을
+  따로 돌리면 공식 조건의 숫자가 나온다 (거의 같을 것으로 예상).
